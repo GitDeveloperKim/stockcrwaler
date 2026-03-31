@@ -1,0 +1,16 @@
+# --- 정적 페이지 크롤링 (HTML 파싱) ---
+requests          # HTTP 요청 전송
+beautifulsoup4    # HTML/XML 파싱 및 데이터 추출
+lxml              # 고성능 HTML 파싱 엔진
+
+# --- 동적 페이지 크롤링 (JavaScript 렌더링) ---
+selenium          # 브라우저 자동화 (Chrome, Edge 등)
+webdriver-manager # 브라우저 드라이버 자동 설치/관리
+
+# --- 데이터 저장 및 처리 ---
+pandas            # 데이터를 표 형태로 관리 및 CSV/Excel 저장
+openpyxl          # Excel 파일(.xlsx) 쓰기 지원
+
+# --- 유틸리티 ---
+fake-useragent    # 차단 방지를 위한 브라우저 정보 랜덤 생성
+tqdm              # 진행률 표시 바
