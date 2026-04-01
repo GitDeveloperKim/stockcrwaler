@@ -14,3 +14,8 @@ openpyxl          # Excel 파일(.xlsx) 쓰기 지원
 # --- 유틸리티 ---
 fake-useragent    # 차단 방지를 위한 브라우저 정보 랜덤 생성
 tqdm              # 진행률 표시 바
+
+google-genai    # 최신 Gemini SDK
+feedparser
+beautifulsoup4
+yfinance
