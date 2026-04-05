@@ -1,73 +1,71 @@
+import feedparser
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
-import requests
 import time
+import urllib.parse
 
 def get_top_10_stocks():
-    """네이버 증권에서 거래상위 10개 종목명과 코드를 가져옴"""
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+    """네이버 증권에서 거래상위 10개 종목명 가져오기 (Selenium)"""
+    options = webdriver.ChromeOptions()
+    options.add_argument('--headless') # 창 안 띄우기 (속도 향상)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    
     url = "https://finance.naver.com/sise/sise_quant.naver"
     driver.get(url)
-    time.sleep(1) # 로딩 대기
+    time.sleep(2)
 
-    # 종목명 요소 찾기 (class='tltle')
     stock_elements = driver.find_elements(By.CLASS_NAME, "tltle")
-    
-    top_10 = []
-    for s in stock_elements[:10]:
-        name = s.text
-        code = s.get_attribute("href").split("code=")[1]
-        top_10.append({"name": name, "code": code})
+    top_10_names = [s.text for s in stock_elements[:10]]
     
     driver.quit()
-    return top_10
+    return top_10_names
 
-def get_stock_news(stock_name, count=3):
-    """특정 종목의 최신 뉴스 제목을 BeautifulSoup으로 수집"""
-    # 네이버 뉴스 검색결과 URL (정렬: 최신순)
-    search_url = f"https://search.naver.com/search.naver?where=news&query={stock_name}&sort=1"
-    headers = {'User-Agent': 'Mozilla/5.0'}
+def get_google_news_rss(keyword, count=3):
+    """구글 뉴스 RSS를 통해 종목별 최신 뉴스 추출"""
+    # 검색어 인코딩 (한글 깨짐 방지)
+    encoded_keyword = urllib.parse.quote(f"{keyword} 주식")
+    rss_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=ko&gl=KR&ceid=KR:ko"
     
-    res = requests.get(search_url, headers=headers)
-    soup = BeautifulSoup(res.text, 'html.parser')
+    feed = feedparser.parse(rss_url)
+    news_items = []
     
-    # 뉴스 제목 요소 선택 (네이버 검색 결과 기준)
-    news_titles = soup.select('a.news_tit')
-    
-    results = []
-    for title in news_titles[:count]:
-        results.append(title.get_text())
-    return results
+    for entry in feed.entries[:count]:
+        # 제목에서 언론사명 제거 (보통 ' - 언론사' 형태로 붙음)
+        clean_title = entry.title.split(" - ")[0]
+        news_items.append(clean_title)
+        
+    return news_items
 
 # --- 메인 실행 로직 ---
 if __name__ == "__main__":
-    print("🚀 네이버 증권 거래상위 10개 종목 분석 중...")
-    stocks = get_top_10_stocks()
+    print("📈 실시간 거래 상위 종목 및 뉴스 수집 시작...")
     
-    final_report = []
+    # 1. 종목 리스트 가져오기
+    top_stocks = get_top_10_stocks()
+    
+    all_data_for_gemini = "" # Gemini에게 던질 텍스트 뭉치
 
-    for idx, stock in enumerate(stocks, 1):
-        print(f"[{idx}/10] {stock['name']}({stock['code']}) 뉴스 수집 중...")
-        news = get_stock_news(stock['name'])
+    print("\n--- 수집 결과 ---")
+    for i, name in enumerate(top_stocks, 1):
+        news_list = get_google_news_rss(name)
         
-        # 데이터 정리
-        stock_info = {
-            "rank": idx,
-            "name": stock['name'],
-            "news": news
-        }
-        final_report.append(stock_info)
-        time.sleep(0.5) # 서버 부하 방지용 짧은 휴식
+        stock_report = f"{i}위: {name}\n"
+        for title in news_list:
+            stock_report += f"  - {title}\n"
+        
+        print(stock_report)
+        all_data_for_gemini += stock_report + "\n"
 
-    # --- 결과 출력 ---
-    print("\n" + "="*50)
-    print("📊 종목별 최신 뉴스 요약")
-    print("="*50)
-    for item in final_report:
-        print(f"{item['rank']}위: {item['name']}")
-        for n in item['news']:
-            print(f"   - {n}")
-        print("-" * 30)
+    # 2. 여기서 Gemini API 연동 (예시)
+    """
+    from google import genai
+    client = genai.Client(api_key="YOUR_API_KEY")
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=f"다음은 오늘 거래량이 급증한 종목들과 관련 뉴스입니다. 시장의 주요 테마를 분석해주세요:\n\n{all_data_for_gemini}"
+    )
+    print("🤖 Gemini 분석 리포트:")
+    print(response.text)
+    """
