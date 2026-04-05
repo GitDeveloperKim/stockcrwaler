@@ -79,17 +79,20 @@ def save_to_google_sheet(stock_data_list):
             print(f" > 기존 워크시트 초기화 완료: {today}")
 
         # 헤더 및 데이터 쓰기
-        headers = ["순위", "종목명", "최신뉴스 요약"]
+        # 헤더 수정 (뉴스 1, 2, 3 열 생성)
+        headers = ["순위", "종목명", "뉴스 1", "뉴스 2", "뉴스 3"]
         worksheet.append_row(headers)
-        
-        for item in stock_data_list:
-            # 뉴스들 사이에 구분선을 넣어 가독성을 높임
-            news_text = "\n\n".join(item['news']) 
-            row = [item['rank'], item['name'], news_text]
-            worksheet.append_row(row)
-            print(f" > [{item['rank']}위] {item['name']} 저장 완료")
 
-        print("✅ 모든 데이터가 구글 시트에 안전하게 기록되었습니다!")
+        for item in stock_data_list:
+            # [순위, 종목명] + [뉴스1, 뉴스2, 뉴스3] 리스트를 합칩니다.
+            row = [item['rank'], item['name']] + item['news_columns']
+            
+            # [중요] value_input_option='USER_ENTERED'가 있어야 클릭 가능한 링크가 됩니다!
+            worksheet.append_row(row, value_input_option='USER_ENTERED')
+            print(f" > [{item['rank']}위] {item['name']} 저장 완료 (뉴스 3개 열 분리)")
+
+        print("✅ 3개 열에 뉴스 링크 저장이 완료되었습니다!")
+
     except Exception as e:
         print(f"❌ 시트 저장 중 에러 발생: {e}")
 
@@ -114,27 +117,32 @@ if __name__ == "__main__":
         feed = feedparser.parse(rss_url)
         
         # 제목과 링크를 "제목 (링크)" 형태로 합친 리스트 생성
-        news_list_with_links = []
-        for entry in feed.entries[:3]: # 최신 뉴스 3개
-            title = entry.title.split(" - ")[0] # 언론사명 제거
+        news_links = []
+        for entry in feed.entries[:3]:
+            title = entry.title.split(" - ")[0].replace('"', '""') # 큰따옴표 중복 처리
             link = entry.link
-            news_list_with_links.append(f"{title}\n({link})")
+            # 구글 시트용 하이퍼링크 공식
+            formula = f'=HYPERLINK("{link}", "{title}")'
+            news_links.append(formula)
+        
+        # 만약 뉴스가 3개 미만일 경우 빈 칸으로 채워줌 (에러 방지)
+        while len(news_links) < 3:
+            news_links.append("")
         # --------------------------------------------------
 
         # 1. 엑셀 저장용 데이터 차곡차곡 쌓기
         stock_item = {
             "rank": i,
             "name": name,
-            "code": "N/A", 
-            "news": news_list_with_links # 링크가 포함된 리스트를 넣습니다.
+            "news_columns": news_links  # 리스트 자체를 넘김 [뉴스1, 뉴스2, 뉴스3]
         }
         data_for_excel.append(stock_item)
 
         # 2. Gemini용 텍스트 만들기 (분석용이므로 링크는 빼고 제목만 넣어도 충분합니다)
-        titles_only = [n.split("\n")[0] for n in news_list_with_links]
+        titles_only = [n.split("\n")[0] for n in news_links]
         all_data_for_gemini += f"{i}위: {name}\n" + "\n".join(titles_only) + "\n\n"
 
-        print(f" > {i}위 {name} 수집 완료 (뉴스 {len(news_list_with_links)}건)")
+        print(f" > {i}위 {name} 수집 완료 (뉴스 {len(news_links)}건)")
 
     # 3. 구글 시트 저장 함수 호출
     save_to_google_sheet(data_for_excel)
