@@ -1,8 +1,12 @@
 import feedparser
+
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 import time
 import urllib.parse
 
@@ -38,25 +42,67 @@ def get_google_news_rss(keyword, count=3):
         
     return news_items
 
-# --- 메인 실행 로직 ---
+def save_to_google_sheet(stock_data_list):
+    # 1. 인증 설정
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+    client = gspread.authorize(creds)
+
+    # 2. 구글 시트 열기 (본인이 생성한 시트 이름 입력)
+    spreadsheet = client.open_by_key("1zBeoVfKZwP2_w71Fyd94mSFRyi6MO4rf7f_A_oUg2XY") 
+
+    # 3. 오늘 날짜로 새 시트 만들기 (이미 있으면 열기)
+    today = datetime.now().strftime('%Y-%m-%d')
+    try:
+        worksheet = spreadsheet.add_worksheet(title=today, rows="100", cols="10")
+    except gspread.exceptions.APIError:
+        worksheet = spreadsheet.worksheet(today)
+        worksheet.clear() # 기존 데이터가 있다면 초기화
+
+    # 4. 헤더 추가
+    headers = ["순위", "종목명", "종목코드", "최신뉴스 요약"]
+    worksheet.append_row(headers)
+
+    # 5. 데이터 저장
+    for item in stock_data_list:
+        # 뉴스 리스트를 하나의 문자열로 합침
+        news_combined = "\n".join(item['news'])
+        row = [item['rank'], item['name'], item['code'], news_combined]
+        worksheet.append_row(row)
+
+    print(f"✅ 구글 시트 '{today}' 워크시트에 저장이 완료되었습니다!")
+
+# --- 실제 연동 시 예시 데이터 ---
+# stock_data_list = [
+#     {"rank": 1, "name": "삼성전자", "code": "005930", "news": ["뉴스1", "뉴스2"]},
+#     ...
+# ]
+# save_to_google_sheet(stock_data_list)
+
+# --- 메인 실행 로직 수정 예시 ---
 if __name__ == "__main__":
-    print("📈 실시간 거래 상위 종목 및 뉴스 수집 시작...")
-    
-    # 1. 종목 리스트 가져오기
     top_stocks = get_top_10_stocks()
     
-    all_data_for_gemini = "" # Gemini에게 던질 텍스트 뭉치
+    all_data_for_gemini = ""  # 이건 Gemini용 (문자열)
+    data_for_excel = []       # 이건 엑셀 저장용 (리스트)
 
-    print("\n--- 수집 결과 ---")
     for i, name in enumerate(top_stocks, 1):
         news_list = get_google_news_rss(name)
         
-        stock_report = f"{i}위: {name}\n"
-        for title in news_list:
-            stock_report += f"  - {title}\n"
-        
-        print(stock_report)
-        all_data_for_gemini += stock_report + "\n"
+        # 1. 엑셀 저장용 데이터 차곡차곡 쌓기 (딕셔너리 형태)
+        stock_item = {
+            "rank": i,
+            "name": name,
+            "code": "N/A", # 필요시 추출 로직 추가
+            "news": news_list
+        }
+        data_for_excel.append(stock_item)
+
+        # 2. Gemini용 텍스트 만들기
+        all_data_for_gemini += f"{i}위: {name}\n" + "\n".join(news_list) + "\n\n"
+
+    # [중요] 함수를 호출할 때 '리스트'를 넘겨주어야 합니다!
+    save_to_google_sheet(data_for_excel)
 
     # 2. 여기서 Gemini API 연동 (예시)
     """
