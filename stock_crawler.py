@@ -1,5 +1,4 @@
 import feedparser
-
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -43,34 +42,37 @@ def get_google_news_rss(keyword, count=3):
     return news_items
 
 def save_to_google_sheet(stock_data_list):
-    # 1. 인증 설정
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
-    client = gspread.authorize(creds)
-
-    # 2. 구글 시트 열기 (본인이 생성한 시트 이름 입력)
-    spreadsheet = client.open_by_key("1zBeoVfKZwP2_w71Fyd94mSFRyi6MO4rf7f_A_oUg2XY") 
-
-    # 3. 오늘 날짜로 새 시트 만들기 (이미 있으면 열기)
-    today = datetime.now().strftime('%Y-%m-%d')
+    print("\n[Step 3] 구글 시트 저장 시작...")
     try:
-        worksheet = spreadsheet.add_worksheet(title=today, rows="100", cols="10")
-    except gspread.exceptions.APIError:
-        worksheet = spreadsheet.worksheet(today)
-        worksheet.clear() # 기존 데이터가 있다면 초기화
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        client = gspread.authorize(creds)
 
-    # 4. 헤더 추가
-    headers = ["순위", "종목명", "종목코드", "최신뉴스 요약"]
-    worksheet.append_row(headers)
+        # 시트 열기 (본인의 시트 이름으로 수정)
+        spreadsheet = client.open_by_key("1zBeoVfKZwP2_w71Fyd94mSFRyi6MO4rf7f_A_oUg2XY")
+        
+        today = datetime.now().strftime('%Y-%m-%d')
+        try:
+            worksheet = spreadsheet.add_worksheet(title=today, rows="100", cols="10")
+            print(f" > 새 워크시트 생성 완료: {today}")
+        except:
+            worksheet = spreadsheet.worksheet(today)
+            worksheet.clear()
+            print(f" > 기존 워크시트 초기화 완료: {today}")
 
-    # 5. 데이터 저장
-    for item in stock_data_list:
-        # 뉴스 리스트를 하나의 문자열로 합침
-        news_combined = "\n".join(item['news'])
-        row = [item['rank'], item['name'], item['code'], news_combined]
-        worksheet.append_row(row)
+        # 헤더 및 데이터 쓰기
+        headers = ["순위", "종목명", "최신뉴스 요약"]
+        worksheet.append_row(headers)
+        
+        for item in stock_data_list:
+            news_text = "\n".join(item['news'])
+            row = [item['rank'], item['name'], news_text]
+            worksheet.append_row(row)
+            print(f" > [{item['rank']}위] {item['name']} 저장 완료")
 
-    print(f"✅ 구글 시트 '{today}' 워크시트에 저장이 완료되었습니다!")
+        print("✅ 모든 데이터가 구글 시트에 안전하게 기록되었습니다!")
+    except Exception as e:
+        print(f"❌ 시트 저장 중 에러 발생: {e}")
 
 # --- 실제 연동 시 예시 데이터 ---
 # stock_data_list = [
