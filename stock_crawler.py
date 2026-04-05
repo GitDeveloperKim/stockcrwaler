@@ -1,4 +1,6 @@
 import feedparser
+import urllib.parse
+import feedparser
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -41,6 +43,22 @@ def get_google_news_rss(keyword, count=3):
         
     return news_items
 
+def get_google_news_with_links(keyword, count=3):
+    """종목별 뉴스 제목과 원본 링크를 함께 가져오기"""
+    encoded_keyword = urllib.parse.quote(f"{keyword} 주식")
+    rss_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=ko&gl=KR&ceid=KR:ko"
+    
+    feed = feedparser.parse(rss_url)
+    news_items = []
+    
+    for entry in feed.entries[:count]:
+        title = entry.title.split(" - ")[0] # 언론사명 제거
+        link = entry.link                  # 원본 기사 링크
+        # 엑셀에서 보기 좋게 "제목 (링크)" 형태로 합침
+        news_items.append(f"{title}\n({link})")
+        
+    return news_items
+
 def save_to_google_sheet(stock_data_list):
     print("\n[Step 3] 구글 시트 저장 시작...")
     try:
@@ -65,7 +83,8 @@ def save_to_google_sheet(stock_data_list):
         worksheet.append_row(headers)
         
         for item in stock_data_list:
-            news_text = "\n".join(item['news'])
+            # 뉴스들 사이에 구분선을 넣어 가독성을 높임
+            news_text = "\n\n".join(item['news']) 
             row = [item['rank'], item['name'], news_text]
             worksheet.append_row(row)
             print(f" > [{item['rank']}위] {item['name']} 저장 완료")
@@ -89,22 +108,38 @@ if __name__ == "__main__":
     data_for_excel = []       # 이건 엑셀 저장용 (리스트)
 
     for i, name in enumerate(top_stocks, 1):
-        news_list = get_google_news_rss(name)
+        # --- [수정 부분] RSS에서 제목과 링크를 모두 가져옵니다 ---
+        encoded_keyword = urllib.parse.quote(f"{name} 주식")
+        rss_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=ko&gl=KR&ceid=KR:ko"
+        feed = feedparser.parse(rss_url)
         
-        # 1. 엑셀 저장용 데이터 차곡차곡 쌓기 (딕셔너리 형태)
+        # 제목과 링크를 "제목 (링크)" 형태로 합친 리스트 생성
+        news_list_with_links = []
+        for entry in feed.entries[:3]: # 최신 뉴스 3개
+            title = entry.title.split(" - ")[0] # 언론사명 제거
+            link = entry.link
+            news_list_with_links.append(f"{title}\n({link})")
+        # --------------------------------------------------
+
+        # 1. 엑셀 저장용 데이터 차곡차곡 쌓기
         stock_item = {
             "rank": i,
             "name": name,
-            "code": "N/A", # 필요시 추출 로직 추가
-            "news": news_list
+            "code": "N/A", 
+            "news": news_list_with_links # 링크가 포함된 리스트를 넣습니다.
         }
         data_for_excel.append(stock_item)
 
-        # 2. Gemini용 텍스트 만들기
-        all_data_for_gemini += f"{i}위: {name}\n" + "\n".join(news_list) + "\n\n"
+        # 2. Gemini용 텍스트 만들기 (분석용이므로 링크는 빼고 제목만 넣어도 충분합니다)
+        titles_only = [n.split("\n")[0] for n in news_list_with_links]
+        all_data_for_gemini += f"{i}위: {name}\n" + "\n".join(titles_only) + "\n\n"
 
-    # [중요] 함수를 호출할 때 '리스트'를 넘겨주어야 합니다!
+        print(f" > {i}위 {name} 수집 완료 (뉴스 {len(news_list_with_links)}건)")
+
+    # 3. 구글 시트 저장 함수 호출
     save_to_google_sheet(data_for_excel)
+    
+    print("\n✅ 모든 작업이 완료되었습니다. 구글 시트를 확인해 보세요!")
 
     # 2. 여기서 Gemini API 연동 (예시)
     """
