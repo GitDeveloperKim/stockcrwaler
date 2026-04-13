@@ -12,20 +12,29 @@ import time
 import urllib.parse
 
 def get_top_10_stocks():
-    """네이버 증권에서 거래상위 10개 종목명 가져오기 (Selenium)"""
+    """네이버 증권에서 이름과 종목 코드를 함께 추출"""
     options = webdriver.ChromeOptions()
-    options.add_argument('--headless') # 창 안 띄우기 (속도 향상)
+    options.add_argument('--headless')
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
     url = "https://finance.naver.com/sise/sise_quant.naver"
     driver.get(url)
     time.sleep(2)
 
+    # 종목명이 들어있는 a 태그들을 찾습니다.
     stock_elements = driver.find_elements(By.CLASS_NAME, "tltle")
-    top_10_names = [s.text for s in stock_elements[:10]]
+    
+    top_10_info = []
+    for s in stock_elements[:10]:
+        name = s.text
+        # href 속성값 예: "/item/main.naver?code=005930"
+        link = s.get_attribute('href')
+        code = link.split('code=')[-1] # 'code=' 뒷부분만 잘라냄
+        
+        top_10_info.append({'name': name, 'code': code})
     
     driver.quit()
-    return top_10_names
+    return top_10_info
 
 def get_google_news_rss(keyword, count=3):
     """구글 뉴스 RSS를 통해 종목별 최신 뉴스 추출"""
@@ -80,12 +89,12 @@ def save_to_google_sheet(stock_data_list):
 
         # 헤더 및 데이터 쓰기
         # 헤더 수정 (뉴스 1, 2, 3 열 생성)
-        headers = ["순위", "종목명", "뉴스 1", "뉴스 2", "뉴스 3"]
+        headers = ["순위", "종목명", "종목코드", "뉴스 1", "뉴스 2", "뉴스 3"]
         worksheet.append_row(headers)
 
         for item in stock_data_list:
             # [순위, 종목명] + [뉴스1, 뉴스2, 뉴스3] 리스트를 합칩니다.
-            row = [item['rank'], item['name']] + item['news_columns']
+            row = [item['rank'], item['name'], item['code']] + item['news_columns']
             
             # [중요] value_input_option='USER_ENTERED'가 있어야 클릭 가능한 링크가 됩니다!
             worksheet.append_row(row, value_input_option='USER_ENTERED')
@@ -103,48 +112,40 @@ def save_to_google_sheet(stock_data_list):
 # ]
 # save_to_google_sheet(stock_data_list)
 
-# --- 메인 실행 로직 수정 예시 ---
 if __name__ == "__main__":
-    top_stocks = get_top_10_stocks()
+    # 1. 이제 이름과 코드가 담긴 리스트를 받습니다.
+    top_stocks_info = get_top_10_stocks()
     
-    all_data_for_gemini = ""  # 이건 Gemini용 (문자열)
-    data_for_excel = []       # 이건 엑셀 저장용 (리스트)
+    data_for_excel = []
 
-    for i, name in enumerate(top_stocks, 1):
-        # --- [수정 부분] RSS에서 제목과 링크를 모두 가져옵니다 ---
+    for i, stock in enumerate(top_stocks_info, 1):
+        name = stock['name']
+        code = stock['code']
+        
+        # 구글 뉴스 RSS 수집 부분 (기존과 동일)
         encoded_keyword = urllib.parse.quote(f"{name} 주식")
         rss_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
         
-        # 제목과 링크를 "제목 (링크)" 형태로 합친 리스트 생성
         news_links = []
         for entry in feed.entries[:3]:
-            title = entry.title.split(" - ")[0].replace('"', '""') # 큰따옴표 중복 처리
-            link = entry.link
-            # 구글 시트용 하이퍼링크 공식
-            formula = f'=HYPERLINK("{link}", "{title}")'
+            title = entry.title.split(" - ")[0].replace('"', '""')
+            formula = f'=HYPERLINK("{entry.link}", "{title}")'
             news_links.append(formula)
         
-        # 만약 뉴스가 3개 미만일 경우 빈 칸으로 채워줌 (에러 방지)
         while len(news_links) < 3:
             news_links.append("")
-        # --------------------------------------------------
 
-        # 1. 엑셀 저장용 데이터 차곡차곡 쌓기
-        stock_item = {
+        # 엑셀 데이터 구성 (코드 열 추가)
+        data_for_excel.append({
             "rank": i,
             "name": name,
-            "news_columns": news_links  # 리스트 자체를 넘김 [뉴스1, 뉴스2, 뉴스3]
-        }
-        data_for_excel.append(stock_item)
+            "code": code, # <--- 수집한 코드 삽입
+            "news_columns": news_links
+        })
+        print(f" > {i}위 {name}({code}) 데이터 준비 완료")
 
-        # 2. Gemini용 텍스트 만들기 (분석용이므로 링크는 빼고 제목만 넣어도 충분합니다)
-        titles_only = [n.split("\n")[0] for n in news_links]
-        all_data_for_gemini += f"{i}위: {name}\n" + "\n".join(titles_only) + "\n\n"
-
-        print(f" > {i}위 {name} 수집 완료 (뉴스 {len(news_links)}건)")
-
-    # 3. 구글 시트 저장 함수 호출
+    # 3. 엑셀 저장 함수 호출 (헤더에 '코드' 추가 확인)
     save_to_google_sheet(data_for_excel)
     
     print("\n✅ 모든 작업이 완료되었습니다. 구글 시트를 확인해 보세요!")
